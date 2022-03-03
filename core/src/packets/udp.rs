@@ -151,13 +151,15 @@ impl<E: IpPacket> Udp<E> {
     /// Returns the data as a `u8` slice.
     #[inline]
     pub fn data(&self) -> &[u8] {
-        if let Ok(data) = self
+        match self
             .mbuf()
             .read_data_slice(self.payload_offset(), self.payload_len())
         {
-            unsafe { &*data.as_ptr() }
-        } else {
-            unreachable!()
+            Ok(data) => unsafe { &*data.as_ptr() },
+            Err(err) => {
+                println!("Error in data buffer: {:?}", err);
+                unreachable!()
+            }
         }
     }
 

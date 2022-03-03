@@ -33,7 +33,9 @@ use std::net::Ipv6Addr;
 const BATCH_SIZE: usize = 500;
 
 fn single_parse_udp(ip4: Ipv4) -> Udp4 {
-    ip4.parse::<Udp4>().unwrap()
+    let udp = ip4.parse::<Udp4>().unwrap();
+    let _data = udp.data(); 
+    udp
 }
 
 fn single_peek_udp(ip4: Ipv4) -> Ipv4 {
