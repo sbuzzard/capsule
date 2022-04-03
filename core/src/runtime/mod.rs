@@ -117,10 +117,20 @@ impl Runtime {
 
     /// Initializes a new runtime from config settings.
     pub fn from_config(config: RuntimeConfig) -> Result<Self> {
+        Self::from_config_with_post_eal_hook(config, || Ok(()))
+    }
+
+    /// Initializes a new runtime from config settings with post EAL initialization hook.
+    pub fn from_config_with_post_eal_hook<F>(config: RuntimeConfig, post_eal_init_hook: F) -> Result<Self>
+        where F: Fn() -> Result<()> {
+
         info!("starting runtime.");
 
         debug!("initializing EAL ...");
         dpdk::eal_init(config.to_eal_args())?;
+
+        debug!("executing Post EAL initialization hook ...");
+        post_eal_init_hook()?;
 
         debug!("initializing mempool ...");
         let socket = LcoreId::main().socket();
