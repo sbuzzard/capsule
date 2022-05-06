@@ -35,7 +35,7 @@ pub struct Port {
     port_id: PortId,
     rx_lcores: Vec<usize>,
     tx_lcores: Vec<usize>,
-    outbox: Option<Sender<MbufPtr>>,
+    outbox_by_txlcore: Option<HashMap<usize, Sender<MbufPtr>>>,
     shutdown: Option<ShutdownTrigger>,
 }
 
@@ -86,10 +86,14 @@ impl Port {
     ///
     /// Returns `PortError::TxNotEnabled` if the port is not configured
     /// to transmit packets.
-    pub fn outbox(&self) -> Result<Outbox> {
-        self.outbox
+    pub fn outbox(&self, tx_lcoreid: usize) -> Result<Outbox> {
+        self.outbox_by_txlcore
             .as_ref()
-            .map(|s| Outbox(self.name.clone(), s.clone()))
+            .and_then(|ob_by_txlc| {
+                ob_by_txlc
+                    .get(&tx_lcoreid)
+                    .map(|ob| Outbox(self.name.clone(), ob.clone()))
+            })
             .ok_or_else(|| PortError::TxNotEnabled.into())
     }
 
@@ -133,13 +137,15 @@ impl Port {
         // though the channel is unbounded, in reality, it's bounded by the
         // mempool size because that's the max number of mbufs the program
         // has allocated.
-        let (sender, receiver) = async_channel::unbounded();
+        let mut ob_by_txlcore = HashMap::new();
 
         for (index, lcore_id) in self.tx_lcores.iter().enumerate() {
             let lcore = lcores.get(*lcore_id)?;
-            let receiver = receiver.clone();
+            let (sender, receiver) = async_channel::unbounded();
 
             debug!(port = ?self.name, lcore = ?lcore.id(), "spawning tx loop.");
+
+            ob_by_txlcore.insert(*lcore_id, sender);
 
             lcore.spawn(tx_loop(
                 self.name.clone(),
@@ -150,7 +156,7 @@ impl Port {
             ))
         }
 
-        self.outbox = Some(sender);
+        self.outbox_by_txlcore = Some(ob_by_txlcore);
         Ok(())
     }
 
@@ -594,7 +600,7 @@ impl Builder {
             port_id: self.port_id,
             rx_lcores: self.rx_lcores.clone(),
             tx_lcores: self.tx_lcores.clone(),
-            outbox: None,
+            outbox_by_txlcore: None,
             shutdown: Some(ShutdownTrigger::new()),
         })
     }
