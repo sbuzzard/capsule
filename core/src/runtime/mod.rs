@@ -89,6 +89,7 @@ impl ShutdownWait {
 /// The runtime initializes the underlying DPDK environment, and it also manages
 /// the task scheduler that executes the packet processing tasks.
 pub struct Runtime {
+    rx_batch_size: usize,
     mempool: ManuallyDrop<Mempool>,
     lcores: ManuallyDrop<LcoreMap>,
     ports: ManuallyDrop<PortMap>,
@@ -117,16 +118,26 @@ impl Runtime {
 
     /// Initializes a new runtime from config settings.
     pub fn from_config(config: RuntimeConfig) -> Result<Self> {
-        Self::from_config_with_post_eal_hook(config, || Ok(()))
+        Self::from_config_with_post_eal_hook(config, None, None, || Ok(()))
     }
 
     /// Initializes a new runtime from config settings with post EAL initialization hook.
-    pub fn from_config_with_post_eal_hook<F>(config: RuntimeConfig, post_eal_init_hook: F) -> Result<Self>
-        where F: Fn() -> Result<()> {
-
+    pub fn from_config_with_post_eal_hook<F>(
+        config: RuntimeConfig,
+        rx_batch_size: Option<usize>,
+        tx_batch_size: Option<usize>,
+        post_eal_init_hook: F,
+    ) -> Result<Self>
+    where
+        F: Fn() -> Result<()>,
+    {
         info!("starting runtime.");
 
         debug!("initializing EAL ...");
+
+        let rx_batch_size = rx_batch_size.unwrap_or(32);
+        let tx_batch_size = tx_batch_size.unwrap_or(32);
+
         dpdk::eal_init(config.to_eal_args())?;
 
         debug!("executing Post EAL initialization hook ...");
@@ -164,7 +175,7 @@ impl Runtime {
             debug!(?port);
 
             if !port.tx_lcores().is_empty() {
-                port.spawn_tx_loops(&lcores)?;
+                port.spawn_tx_loops(tx_batch_size, &lcores)?;
             }
 
             port.start()?;
@@ -178,6 +189,7 @@ impl Runtime {
         info!("runtime ready.");
 
         Ok(Runtime {
+            rx_batch_size,
             mempool: ManuallyDrop::new(mempool),
             lcores: ManuallyDrop::new(lcores),
             ports: ManuallyDrop::new(ports),
@@ -192,7 +204,7 @@ impl Runtime {
         F: Fn(Mbuf) -> Result<Postmark> + Clone + Send + Sync + 'static,
     {
         let port = self.ports.get(port)?;
-        port.spawn_rx_loops(f, &self.lcores)?;
+        port.spawn_rx_loops(f, self.rx_batch_size, &self.lcores)?;
         Ok(())
     }
 

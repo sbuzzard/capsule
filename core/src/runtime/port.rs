@@ -98,7 +98,7 @@ impl Port {
     }
 
     /// Spawns the port receiving loop.
-    pub(crate) fn spawn_rx_loops<F>(&self, f: F, lcores: &LcoreMap) -> Result<()>
+    pub(crate) fn spawn_rx_loops<F>(&self, f: F, batch_size: usize, lcores: &LcoreMap) -> Result<()>
     where
         F: Fn(Mbuf) -> Result<Postmark> + Clone + Send + Sync + 'static,
     {
@@ -125,7 +125,7 @@ impl Port {
                     handle.wait().await;
                     debug!(port = ?port_name, lcore = ?LcoreId::current(), "rx loop exited.");
                 },
-                rx_loop(self.name.clone(), self.port_id, index.into(), 32, f),
+                rx_loop(self.name.clone(), self.port_id, index.into(), batch_size, f),
             ));
         }
 
@@ -133,7 +133,7 @@ impl Port {
     }
 
     /// Spawns the port transmitting loop.
-    pub(crate) fn spawn_tx_loops(&mut self, lcores: &LcoreMap) -> Result<()> {
+    pub(crate) fn spawn_tx_loops(&mut self, batch_size: usize, lcores: &LcoreMap) -> Result<()> {
         // though the channel is unbounded, in reality, it's bounded by the
         // mempool size because that's the max number of mbufs the program
         // has allocated.
@@ -151,7 +151,7 @@ impl Port {
                 self.name.clone(),
                 self.port_id,
                 index.into(),
-                32,
+                batch_size,
                 receiver,
             ))
         }
